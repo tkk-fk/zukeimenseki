@@ -2,19 +2,46 @@
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>図形の面積プロトタイプ</title>
     <!-- Tailwind CSS for styling -->
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Kosugi+Maru&display=swap');
+        html, body {
+            height: 100vh;
+            height: 100dvh; /* スマホのアドレスバー分を除いた実際の高さ */
+        }
         body {
             font-family: 'Kosugi Maru', sans-serif;
             background-color: #f0fdf4;
             margin: 0;
             overflow: hidden;
-            touch-action: none; /* Prevent scrolling while dragging */
+            overscroll-behavior: none;      /* 引っぱって再読み込みされるのを防ぐ */
+            touch-action: none;             /* ドラッグ中に画面が動かないようにする */
+            -webkit-user-select: none;
+            user-select: none;              /* 長押しで文字が選択されるのを防ぐ */
+            -webkit-touch-callout: none;
+            -webkit-tap-highlight-color: transparent;
+            padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+            box-sizing: border-box;
         }
+        button { -webkit-tap-highlight-color: transparent; }
+        /* 横スクロールする列のスクロールバーを細く */
+        .thin-scroll::-webkit-scrollbar { height: 4px; width: 4px; }
+        .thin-scroll::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+        /* リンクのURLだけは選択・コピーできるように */
+        #share-url { -webkit-user-select: text; user-select: text; }
+        /* 図形メニューのアイコン（狭い画面では少し小さく） */
+        #shape-menu svg { width: 36px; height: 36px; }
+        #shape-menu button { padding: 0.5rem; }
+        @media (min-width: 640px) {
+            #shape-menu svg { width: 40px; height: 40px; }
+            #shape-menu button { padding: 0.75rem; }
+        }
+        /* 設定パネルのプレビュー（背の低い画面では小さく） */
+        #settings-preview svg { height: 104px; }
+        @media (min-height: 700px) { #settings-preview svg { height: 150px; } }
         .tool-btn.active {
             background-color: #3b82f6;
             color: white;
@@ -50,15 +77,15 @@
         }
     </style>
 </head>
-<body class="h-screen w-screen flex flex-col md:flex-row">
+<body class="w-screen flex flex-col sm:flex-row">
 
     <!-- Sidebar: Shape Selector -->
-    <div class="bg-white w-full md:w-64 border-b md:border-r border-green-200 shadow-md flex flex-col z-10">
-        <div class="p-4 bg-green-500 text-white font-bold text-xl text-center">
+    <div class="bg-white w-full sm:w-40 lg:w-56 border-b sm:border-b-0 sm:border-r border-green-200 shadow-md flex flex-col z-10 flex-shrink-0">
+        <div class="hidden sm:block py-3 bg-green-500 text-white font-bold text-lg text-center">
             📐 図形メニュー
         </div>
-        <div id="shape-menu" class="p-4 flex-1 flex flex-row md:flex-col gap-3 overflow-x-auto md:overflow-y-auto"></div>
-        <div class="p-3 border-t border-green-100 flex flex-col gap-2">
+        <div id="shape-menu" class="thin-scroll p-2 sm:p-3 flex-1 flex flex-row sm:flex-col gap-2 overflow-x-auto sm:overflow-y-auto"></div>
+        <div class="p-2 sm:p-3 border-t border-green-100 flex flex-col gap-2">
             <div class="flex gap-2">
                 <button onclick="openSettings()" class="flex-1 px-2 py-2 rounded-xl font-bold text-sm bg-slate-100 hover:bg-slate-200 border border-slate-300 text-slate-700">
                     ⚙️ 大きさ
@@ -67,14 +94,13 @@
                     🔗 リンク
                 </button>
             </div>
-            <p class="text-xs text-gray-500 text-center">マス目は1辺1cmのイメージです</p>
+            <p class="hidden lg:block text-xs text-gray-500 text-center">マス目は1辺1cmのイメージです</p>
         </div>
     </div>
 
     <!-- Main Content Area -->
-    <div class="flex-1 flex flex-col h-full relative">
-        <div class="bg-white border-b border-gray-200 p-2 md:p-4 flex justify-between items-center shadow-sm z-10">
-            <div class="flex gap-2 md:gap-4 overflow-x-auto w-full pb-2 md:pb-0">
+    <div class="flex-1 flex flex-col relative min-h-0 min-w-0">
+        <div class="thin-scroll bg-white border-b border-gray-200 px-2 py-2 sm:px-3 flex items-center gap-2 overflow-x-auto shadow-sm z-10">
                 <button onclick="setTool('move')" id="btn-move" class="tool-btn active flex-shrink-0 px-4 py-2 rounded-full font-bold bg-gray-100 text-gray-700 hover:bg-gray-200 border border-gray-300">
                     👆 移動
                 </button>
@@ -90,24 +116,22 @@
                 <button onclick="setTool('erase')" id="btn-erase" class="tool-btn flex-shrink-0 px-4 py-2 rounded-full font-bold bg-gray-100 text-gray-700 hover:bg-gray-200 border border-gray-300">
                     🧽 消す
                 </button>
-            </div>
-            <div class="flex gap-2 ml-auto flex-shrink-0">
-                <button onclick="undo()" id="btn-undo" class="is-disabled px-4 py-2 rounded-full font-bold bg-yellow-100 text-yellow-700 hover:bg-yellow-200 border border-yellow-300 whitespace-nowrap">
+                <div class="w-px h-7 bg-gray-300 flex-shrink-0 sm:ml-auto"></div>
+                <button onclick="undo()" id="btn-undo" class="flex-shrink-0 is-disabled px-4 py-2 rounded-full font-bold bg-yellow-100 text-yellow-700 hover:bg-yellow-200 border border-yellow-300 whitespace-nowrap">
                     ↩️ もどる
                 </button>
-                <button onclick="redo()" id="btn-redo" class="is-disabled px-4 py-2 rounded-full font-bold bg-sky-100 text-sky-700 hover:bg-sky-200 border border-sky-300 whitespace-nowrap">
+                <button onclick="redo()" id="btn-redo" class="flex-shrink-0 is-disabled px-4 py-2 rounded-full font-bold bg-sky-100 text-sky-700 hover:bg-sky-200 border border-sky-300 whitespace-nowrap">
                     ↪️ すすむ
                 </button>
-                <button onclick="resetToPlaced()" id="btn-reset" class="px-4 py-2 rounded-full font-bold bg-orange-100 text-orange-600 hover:bg-orange-200 border border-orange-300 whitespace-nowrap">
+                <button onclick="resetToPlaced()" id="btn-reset" class="flex-shrink-0 px-4 py-2 rounded-full font-bold bg-orange-100 text-orange-600 hover:bg-orange-200 border border-orange-300 whitespace-nowrap">
                     ♻️ リセット
                 </button>
-                <button onclick="clearAll()" id="btn-clear" class="px-4 py-2 rounded-full font-bold bg-red-100 text-red-600 hover:bg-red-200 border border-red-300 whitespace-nowrap">
+                <button onclick="clearAll()" id="btn-clear" class="flex-shrink-0 px-4 py-2 rounded-full font-bold bg-red-100 text-red-600 hover:bg-red-200 border border-red-300 whitespace-nowrap">
                     🗑️ 全て消す
                 </button>
-            </div>
         </div>
 
-        <div class="flex-1 relative w-full h-full bg-blue-50 overflow-hidden cursor-crosshair">
+        <div class="flex-1 relative w-full bg-blue-50 overflow-hidden cursor-crosshair min-h-0">
             <svg id="workspace" width="100%" height="100%" xmlns="http://www.w3.org/2000/svg">
                 <!-- Grid Pattern -->
                 <defs>
@@ -128,7 +152,7 @@
             </svg>
             
             <!-- Instructions Overlay -->
-            <div id="instruction-toast" class="absolute bottom-4 left-1/2 transform -translate-x-1/2 bg-gray-800 text-white px-6 py-3 rounded-full opacity-80 pointer-events-none transition-opacity duration-300 text-sm md:text-base whitespace-nowrap">
+            <div id="instruction-toast" class="absolute bottom-3 left-1/2 transform -translate-x-1/2 max-w-[92%] bg-gray-800 text-white px-4 py-2 sm:px-6 sm:py-3 rounded-full opacity-80 pointer-events-none transition-opacity duration-300 text-xs sm:text-sm md:text-base text-center">
                 図形を選んで追加してね！
             </div>
         </div>
@@ -139,7 +163,7 @@
 
     <!-- Settings Modal -->
     <div id="settings-overlay" style="display:none;" class="fixed inset-0 bg-black/40 z-50 items-center justify-center p-3">
-        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-sm flex flex-col overflow-hidden" style="max-height:92vh;">
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-sm flex flex-col overflow-hidden" style="max-height:92dvh;">
             <div class="bg-green-500 text-white px-4 py-3 font-bold flex justify-between items-center">
                 <span>⚙️ 図形の大きさ</span>
                 <button onclick="closeSettings()" class="w-8 h-8 rounded-full bg-white/20 hover:bg-white/30 leading-none">✕</button>
@@ -162,7 +186,7 @@
 
     <!-- Share Modal -->
     <div id="share-overlay" style="display:none;" class="fixed inset-0 bg-black/40 z-50 items-center justify-center p-3">
-        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-sm flex flex-col overflow-hidden" style="max-height:92vh;">
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-sm flex flex-col overflow-hidden" style="max-height:92dvh;">
             <div class="bg-slate-600 text-white px-4 py-3 font-bold flex justify-between items-center">
                 <span>🔗 この設定のリンク</span>
                 <button onclick="closeShare()" class="w-8 h-8 rounded-full bg-white/20 hover:bg-white/30 leading-none">✕</button>
@@ -452,19 +476,8 @@
 
         function getMousePos(evt) {
             let pt = svg.createSVGPoint();
-            if (evt.touches && evt.touches.length > 0) {
-                // タッチしている最中の座標
-                pt.x = evt.touches[0].clientX;
-                pt.y = evt.touches[0].clientY;
-            } else if (evt.changedTouches && evt.changedTouches.length > 0) {
-                // 指を離した瞬間の座標
-                pt.x = evt.changedTouches[0].clientX;
-                pt.y = evt.changedTouches[0].clientY;
-            } else {
-                // マウス操作時の座標
-                pt.x = evt.clientX || 0;
-                pt.y = evt.clientY || 0;
-            }
+            pt.x = (typeof evt.clientX === 'number') ? evt.clientX : 0;
+            pt.y = (typeof evt.clientY === 'number') ? evt.clientY : 0;
             return pt.matrixTransform(svg.getScreenCTM().inverse());
         }
 
@@ -1012,18 +1025,45 @@
             });
         }
 
-        svg.addEventListener('mousedown', startAction);
-        svg.addEventListener('mousemove', moveAction);
-        svg.addEventListener('mouseup', endAction);
-        svg.addEventListener('mouseleave', endAction);
+        // マウス・タッチ・ペンをまとめて扱う（Pointer Events）
+        let activePointerId = null;
 
-        svg.addEventListener('touchstart', startAction, {passive: false});
-        svg.addEventListener('touchmove', moveAction, {passive: false});
-        svg.addEventListener('touchend', endAction);
-        svg.addEventListener('touchcancel', endAction);
+        svg.addEventListener('pointerdown', onPointerDown);
+        svg.addEventListener('pointermove', onPointerMove);
+        svg.addEventListener('pointerup', onPointerUp);
+        svg.addEventListener('pointercancel', onPointerUp);
+
+        function onPointerDown(e) {
+            if (activePointerId !== null) return;              // 2本目の指は無視する
+            if (e.pointerType === 'mouse' && e.button !== 0) return; // 右クリックは無視
+            e.preventDefault();
+            activePointerId = e.pointerId;
+            // 指が図形の外に出ても操作が続くようにする
+            try { svg.setPointerCapture(e.pointerId); } catch (err) { /* 非対応環境では無視 */ }
+            startAction(e);
+        }
+
+        function onPointerMove(e) {
+            if (e.pointerId !== activePointerId) return;
+            e.preventDefault();
+            moveAction(e);
+        }
+
+        function onPointerUp(e) {
+            if (e.pointerId !== activePointerId) return;
+            try { svg.releasePointerCapture(e.pointerId); } catch (err) { /* 無視 */ }
+            activePointerId = null;
+            endAction(e);
+        }
+
+        // 画面から離れたときに操作が固まらないようにする
+        window.addEventListener('blur', () => {
+            if (activePointerId === null) return;
+            activePointerId = null;
+            endAction({clientX: 0, clientY: 0});
+        });
 
         function startAction(e) {
-            if (e.type === 'touchstart') e.preventDefault();
             let pt = getMousePos(e);
             
             // Check if clicking on a shape
@@ -1087,7 +1127,6 @@
         }
 
         function moveAction(e) {
-            if (e.type === 'touchmove') e.preventDefault();
             let pt = getMousePos(e);
 
             if (isDragging && dragTarget) {
@@ -1296,6 +1335,24 @@
         });
         document.getElementById('share-overlay').addEventListener('click', (e) => {
             if (e.target.id === 'share-overlay') closeShare();
+        });
+
+        // パソコンのキーボード操作
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') {
+                closeSettings();
+                closeShare();
+                return;
+            }
+            if (!(e.ctrlKey || e.metaKey)) return;
+            const k = e.key.toLowerCase();
+            if (k === 'z') {
+                e.preventDefault();
+                if (e.shiftKey) redo(); else undo();
+            } else if (k === 'y') {
+                e.preventDefault();
+                redo();
+            }
         });
 
         // Setup Initial state
