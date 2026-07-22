@@ -169,8 +169,9 @@
             </div>
             <div class="flex-1 overflow-y-auto px-4 py-3 flex flex-col items-center gap-3">
                 <p class="text-xs text-gray-600 text-center leading-relaxed">
-                    このリンクを開くと、いま設定している図形の大きさで始まります。<br>板書やプリントにQRコードを載せておけます。
+                    このリンクを開くと、いま画面にある図形と大きさの設定がそのまま再現されます。<br>板書やプリントにQRコードを載せておけます。
                 </p>
+                <button id="share-include" onclick="toggleShareInclude()" class="w-full px-3 py-2 rounded-xl font-bold text-sm border bg-gray-100 text-gray-600 border-gray-300"></button>
                 <div id="share-qr" class="w-44 h-44 bg-white p-2 rounded-xl border border-gray-200"></div>
                 <p id="share-url" class="text-xs text-gray-500 break-all text-center leading-relaxed"></p>
                 <p id="share-note" class="text-xs text-red-600 text-center leading-relaxed" style="display:none;"></p>
@@ -630,6 +631,76 @@
             return true;
         }
 
+        // 画面に置いてある図形を文字列にする（図形は「~」、数値は「,」区切り）
+        // 位置はひとかたまりの左上を基準にするので、画面の大きさが違ってもそのまま再現できます
+        function encodeCanvas() {
+            if (!shapes.length) return '';
+            const minX = Math.min(...shapes.flatMap(s => s.points.map(p => p.x)));
+            const minY = Math.min(...shapes.flatMap(s => s.points.map(p => p.y)));
+            const r2 = v => Math.round(v * 100) / 100;
+            return shapes.map(s => {
+                let ci = colors.findIndex(c => c.fill === s.color.fill);
+                if (ci < 0) ci = 0;
+                const nums = [];
+                s.points.forEach(p => {
+                    nums.push(r2((p.x - minX) / GRID_SIZE));
+                    nums.push(r2((p.y - minY) / GRID_SIZE));
+                });
+                return [ci].concat(nums).join(',');
+            }).join('~');
+        }
+
+        // 文字列から図形を並べ直す
+        function decodeCanvas(str) {
+            const groups = String(str).split('~').filter(Boolean);
+            if (!groups.length || groups.length > 80) return false;
+
+            const list = [];
+            for (const g of groups) {
+                const nums = g.split(',');
+                const ci = parseInt(nums[0], 10);
+                const coords = nums.slice(1).map(Number);
+                if (coords.length < 6 || coords.length % 2 !== 0) return false;
+                if (!coords.every(v => Number.isFinite(v) && Math.abs(v) < 500)) return false;
+                const units = [];
+                for (let i = 0; i < coords.length; i += 2) units.push({x: coords[i], y: coords[i + 1]});
+                const color = (Number.isFinite(ci) && ci >= 0 && ci < colors.length) ? colors[ci] : colors[0];
+                list.push({units, color});
+            }
+
+            // 左上をそろえてから、画面の中央あたりに置く
+            const allX = list.flatMap(s => s.units.map(p => p.x));
+            const allY = list.flatMap(s => s.units.map(p => p.y));
+            const minX = Math.min(...allX), minY = Math.min(...allY);
+            const w = Math.max(...allX) - minX, h = Math.max(...allY) - minY;
+            const rect = svg.getBoundingClientRect();
+            const ox = snap(rect.width / 2 - (w * GRID_SIZE) / 2);
+            const oy = snap(rect.height / 2 - (h * GRID_SIZE) / 2);
+
+            shapes = list.map(s => ({
+                id: 'shape_' + shapeIdCounter++,
+                points: s.units.map(p => ({
+                    x: ox + (p.x - minX) * GRID_SIZE,
+                    y: oy + (p.y - minY) * GRID_SIZE
+                })),
+                color: {fill: s.color.fill, stroke: s.color.stroke}
+            }));
+            // 「リセット」で先生が仕込んだこの状態に戻れるようにする
+            placedShapes = cloneShapes(shapes);
+            return true;
+        }
+
+        // アドレスに図形の配置がついていれば読み込む
+        function applyLinkCanvas() {
+            const m = String(location.hash || '').match(/[#&]z=([^&]+)/);
+            if (!m) return false;
+            try {
+                return decodeCanvas(decodeURIComponent(m[1]));
+            } catch (err) {
+                return false;
+            }
+        }
+
         // アドレスに設定がついていれば読み込む
         function applyLinkParams() {
             const m = String(location.hash || '').match(/[#&]s=([^&]+)/);
@@ -641,14 +712,30 @@
             }
         }
 
+        let includeCanvas = true; // いまの図形もリンクに入れるか
+
         function buildShareUrl() {
             const base = location.origin + location.pathname + location.search;
-            return base + '#s=' + encodeShapeParams();
+            let url = base + '#s=' + encodeShapeParams();
+            if (includeCanvas && shapes.length) url += '&z=' + encodeCanvas();
+            return url;
         }
 
-        function openShare() {
+        function toggleShareInclude() {
+            includeCanvas = !includeCanvas;
+            refreshShare();
+        }
+
+        function refreshShare() {
             const url = buildShareUrl();
             document.getElementById('share-url').textContent = url;
+
+            // 「いまの図形も入れる」ボタンの表示
+            const tgl = document.getElementById('share-include');
+            const on = includeCanvas && shapes.length > 0;
+            tgl.textContent = (on ? '☑' : '☐') + ' いまの図形も入れる（' + shapes.length + '個）';
+            tgl.className = 'w-full px-3 py-2 rounded-xl font-bold text-sm border ' +
+                (on ? 'bg-slate-600 text-white border-slate-700' : 'bg-gray-100 text-gray-600 border-gray-300');
 
             // QRコードをつくる（誤り訂正レベルM、サイズは自動）
             const box = document.getElementById('share-qr');
@@ -661,18 +748,29 @@
                 svgEl.setAttribute('width', '100%');
                 svgEl.setAttribute('height', '100%');
             } catch (err) {
-                box.innerHTML = '<p class="text-xs text-gray-500 p-2">QRコードを作れませんでした</p>';
+                box.innerHTML = '<p class="text-xs text-gray-500 p-2">図形が多すぎてQRコードを作れませんでした。図形を減らすか、「いまの図形も入れる」をオフにしてください。</p>';
             }
 
-            // ファイルを直接開いている場合は共有できないことを伝える
+            // 注意書き
             const note = document.getElementById('share-note');
+            const msgs = [];
             if (location.protocol === 'file:') {
-                note.textContent = 'いまファイルを直接開いているため、このリンクは他の端末では開けません。ウェブに置いたページから作ってください。';
+                msgs.push('いまファイルを直接開いているため、このリンクは他の端末では開けません。ウェブに置いたページから作ってください。');
+            }
+            if (url.length > 500) {
+                msgs.push('図形が多いためQRコードが細かくなっています。読み取りにくいときは大きめに印刷してください。');
+            }
+            if (msgs.length) {
+                note.innerHTML = msgs.join('<br>');
                 note.style.display = 'block';
             } else {
                 note.style.display = 'none';
             }
+        }
 
+        function openShare() {
+            if (!shapes.length) includeCanvas = false;
+            refreshShare();
             document.getElementById('share-overlay').style.display = 'flex';
         }
 
@@ -1204,6 +1302,7 @@
         loadShapeParams();
         if (applyLinkParams()) saveShapeParams(); // リンクの設定が優先
         renderMenu();
+        if (applyLinkCanvas()) renderShapes();    // リンクに図形が入っていれば並べる
         updateHistoryButtons();
         setTimeout(() => showToast('左のメニューから図形を追加してね！'), 500);
 
