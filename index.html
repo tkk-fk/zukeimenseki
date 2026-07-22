@@ -1,0 +1,1070 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>図形の面積プロトタイプ</title>
+    <!-- Tailwind CSS for styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Kosugi+Maru&display=swap');
+        body {
+            font-family: 'Kosugi Maru', sans-serif;
+            background-color: #f0fdf4;
+            margin: 0;
+            overflow: hidden;
+            touch-action: none; /* Prevent scrolling while dragging */
+        }
+        .tool-btn.active {
+            background-color: #3b82f6;
+            color: white;
+            box-shadow: inset 0 3px 5px rgba(0,0,0,0.2);
+            transform: scale(0.95);
+        }
+        .shape-polygon {
+            transition: stroke-width 0.2s;
+            cursor: pointer;
+        }
+        .shape-polygon:hover {
+            stroke-width: 4;
+        }
+        #workspace {
+            touch-action: none; /* Important for touch devices */
+        }
+        .is-disabled {
+            opacity: 0.35;
+            cursor: default;
+        }
+        #settings-overlay {
+            touch-action: auto;
+        }
+        .tab-btn.active {
+            background-color: #22c55e;
+            color: white;
+            border-color: #16a34a;
+        }
+        .opt-btn.active {
+            background-color: #3b82f6;
+            color: white;
+            border-color: #2563eb;
+        }
+    </style>
+</head>
+<body class="h-screen w-screen flex flex-col md:flex-row">
+
+    <!-- Sidebar: Shape Selector -->
+    <div class="bg-white w-full md:w-64 border-b md:border-r border-green-200 shadow-md flex flex-col z-10">
+        <div class="p-4 bg-green-500 text-white font-bold text-xl text-center">
+            📐 図形メニュー
+        </div>
+        <div id="shape-menu" class="p-4 flex-1 flex flex-row md:flex-col gap-3 overflow-x-auto md:overflow-y-auto"></div>
+        <div class="p-3 border-t border-green-100 flex flex-col gap-2">
+            <button onclick="openSettings()" class="w-full px-3 py-2 rounded-xl font-bold text-sm bg-slate-100 hover:bg-slate-200 border border-slate-300 text-slate-700">
+                ⚙️ 図形の大きさ
+            </button>
+            <p class="text-xs text-gray-500 text-center">マス目は1辺1cmのイメージです</p>
+        </div>
+    </div>
+
+    <!-- Main Content Area -->
+    <div class="flex-1 flex flex-col h-full relative">
+        <div class="bg-white border-b border-gray-200 p-2 md:p-4 flex justify-between items-center shadow-sm z-10">
+            <div class="flex gap-2 md:gap-4 overflow-x-auto w-full pb-2 md:pb-0">
+                <button onclick="setTool('move')" id="btn-move" class="tool-btn active flex-shrink-0 px-4 py-2 rounded-full font-bold bg-gray-100 text-gray-700 hover:bg-gray-200 border border-gray-300">
+                    👆 移動
+                </button>
+                <button onclick="setTool('cut')" id="btn-cut" class="tool-btn flex-shrink-0 px-4 py-2 rounded-full font-bold bg-gray-100 text-gray-700 hover:bg-gray-200 border border-gray-300">
+                    ✂️ 切る
+                </button>
+                <button onclick="setTool('rotate')" id="btn-rotate" class="tool-btn flex-shrink-0 px-4 py-2 rounded-full font-bold bg-gray-100 text-gray-700 hover:bg-gray-200 border border-gray-300">
+                    🔄 回す
+                </button>
+                <button onclick="setTool('color')" id="btn-color" class="tool-btn flex-shrink-0 px-4 py-2 rounded-full font-bold bg-gray-100 text-gray-700 hover:bg-gray-200 border border-gray-300">
+                    🎨 色ぬり
+                </button>
+                <button onclick="setTool('erase')" id="btn-erase" class="tool-btn flex-shrink-0 px-4 py-2 rounded-full font-bold bg-gray-100 text-gray-700 hover:bg-gray-200 border border-gray-300">
+                    🧽 消す
+                </button>
+            </div>
+            <div class="flex gap-2 ml-auto flex-shrink-0">
+                <button onclick="undo()" id="btn-undo" class="is-disabled px-4 py-2 rounded-full font-bold bg-yellow-100 text-yellow-700 hover:bg-yellow-200 border border-yellow-300 whitespace-nowrap">
+                    ↩️ もどる
+                </button>
+                <button onclick="redo()" id="btn-redo" class="is-disabled px-4 py-2 rounded-full font-bold bg-sky-100 text-sky-700 hover:bg-sky-200 border border-sky-300 whitespace-nowrap">
+                    ↪️ すすむ
+                </button>
+                <button onclick="resetToPlaced()" id="btn-reset" class="px-4 py-2 rounded-full font-bold bg-orange-100 text-orange-600 hover:bg-orange-200 border border-orange-300 whitespace-nowrap">
+                    ♻️ リセット
+                </button>
+                <button onclick="clearAll()" id="btn-clear" class="px-4 py-2 rounded-full font-bold bg-red-100 text-red-600 hover:bg-red-200 border border-red-300 whitespace-nowrap">
+                    🗑️ 全て消す
+                </button>
+            </div>
+        </div>
+
+        <div class="flex-1 relative w-full h-full bg-blue-50 overflow-hidden cursor-crosshair">
+            <svg id="workspace" width="100%" height="100%" xmlns="http://www.w3.org/2000/svg">
+                <!-- Grid Pattern -->
+                <defs>
+                    <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+                        <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#cbd5e1" stroke-width="1.5"/>
+                    </pattern>
+                </defs>
+                <rect width="100%" height="100%" fill="url(#grid)" />
+                
+                <!-- Group for Shapes -->
+                <g id="shapes-layer"></g>
+
+                <!-- Cutting Line (Dynamic) -->
+                <line id="cut-line" x1="0" y1="0" x2="0" y2="0" stroke="#ef4444" stroke-width="3" stroke-dasharray="5,5" style="display:none;" />
+
+                <!-- Snap Indicator (Dynamic) -->
+                <circle id="snap-marker" r="9" fill="none" stroke="#16a34a" stroke-width="3" style="display:none;" />
+            </svg>
+            
+            <!-- Instructions Overlay -->
+            <div id="instruction-toast" class="absolute bottom-4 left-1/2 transform -translate-x-1/2 bg-gray-800 text-white px-6 py-3 rounded-full opacity-80 pointer-events-none transition-opacity duration-300 text-sm md:text-base whitespace-nowrap">
+                図形を選んで追加してね！
+            </div>
+        </div>
+    </div>
+
+    <!-- Settings Modal -->
+    <div id="settings-overlay" style="display:none;" class="fixed inset-0 bg-black/40 z-50 items-center justify-center p-3">
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-sm flex flex-col overflow-hidden" style="max-height:92vh;">
+            <div class="bg-green-500 text-white px-4 py-3 font-bold flex justify-between items-center">
+                <span>⚙️ 図形の大きさ</span>
+                <button onclick="closeSettings()" class="w-8 h-8 rounded-full bg-white/20 hover:bg-white/30 leading-none">✕</button>
+            </div>
+            <div id="settings-tabs" class="flex flex-wrap gap-1 px-3 py-2 border-b border-green-100"></div>
+            <div class="flex-1 overflow-y-auto px-4 py-3">
+                <div id="settings-preview" class="flex flex-col items-center gap-1 mb-3"></div>
+                <div id="settings-fields" class="flex flex-col gap-2"></div>
+            </div>
+            <div class="p-3 border-t border-gray-200 flex gap-2">
+                <button onclick="resetShapeParams()" class="flex-1 px-3 py-2 rounded-xl font-bold text-sm bg-gray-100 hover:bg-gray-200 border border-gray-300 text-gray-700">
+                    初期値にもどす
+                </button>
+                <button onclick="addFromSettings()" class="flex-1 px-3 py-2 rounded-xl font-bold text-sm bg-green-500 hover:bg-green-600 text-white border border-green-600">
+                    この形を追加
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const GRID_SIZE = 40;
+        const SNAP_DIST = 24; // 頂点どうしがくっつく距離
+        let shapes = [];
+        let placedShapes = []; // 「置いたとき」の図形（リセット用）
+        let historyStack = []; // もどる用
+        let redoStack = [];    // すすむ用
+        let shapeIdCounter = 0;
+        let currentTool = 'move'; // move, cut, rotate, color
+        
+        // Colors palette for clicking
+        const colors = [
+            {fill: '#fca5a5', stroke: '#ef4444'}, // red
+            {fill: '#93c5fd', stroke: '#3b82f6'}, // blue
+            {fill: '#fde047', stroke: '#eab308'}, // yellow
+            {fill: '#86efac', stroke: '#22c55e'}, // green
+            {fill: '#d8b4fe', stroke: '#a855f7'}, // purple
+            {fill: '#fdba74', stroke: '#f97316'}  // orange
+        ];
+
+        // Canvas Elements
+        const svg = document.getElementById('workspace');
+        const shapesLayer = document.getElementById('shapes-layer');
+        const cutLine = document.getElementById('cut-line');
+        const snapMarker = document.getElementById('snap-marker');
+        const toast = document.getElementById('instruction-toast');
+
+        // Interaction State
+        let isDragging = false;
+        let isCutting = false;
+        let dragTarget = null;
+        let startPt = {x: 0, y: 0};
+        let cutStartPt = {x: 0, y: 0};
+        let preDragState = null;   // ドラッグ開始時の状態（実際に動いたときだけ履歴に積む）
+        let anchorX = 0;           // マス目に合わせる基準（横）
+        let anchorY = 0;           // マス目に合わせる基準（縦）
+
+        function setTool(tool) {
+            currentTool = tool;
+            document.querySelectorAll('.tool-btn').forEach(btn => btn.classList.remove('active'));
+            document.getElementById(`btn-${tool}`).classList.add('active');
+            
+            const messages = {
+                'move': '👆 図形をドラッグして移動させよう',
+                'cut': '✂️ スワイプして図形をまっすぐ切ろう',
+                'rotate': '🔄 図形をタップして45度回そう',
+                'color': '🎨 図形をタップして色を変えよう',
+                'erase': '🧽 消したい図形をタップしよう'
+            };
+            showToast(messages[tool]);
+        }
+
+        function showToast(msg) {
+            toast.textContent = msg;
+            toast.style.opacity = '1';
+            setTimeout(() => { toast.style.opacity = '0.7'; }, 2000);
+        }
+
+        // ===== 履歴管理（もどる・すすむ） =====
+
+        // 現在の図形の状態を複製して取り出す
+        function cloneShapes(list) {
+            return list.map(s => ({
+                id: s.id,
+                points: s.points.map(p => ({x: p.x, y: p.y})),
+                color: {fill: s.color.fill, stroke: s.color.stroke}
+            }));
+        }
+
+        function snapshot() {
+            return { shapes: cloneShapes(shapes), placed: cloneShapes(placedShapes) };
+        }
+
+        function restore(state) {
+            shapes = cloneShapes(state.shapes);
+            placedShapes = cloneShapes(state.placed);
+        }
+
+        // 履歴に積む（新しい操作をしたら「すすむ」履歴は破棄）
+        function pushHistory(state) {
+            historyStack.push(state);
+            if (historyStack.length > 30) historyStack.shift();
+            redoStack = [];
+            updateHistoryButtons();
+        }
+
+        // 変更前に呼ぶ
+        function saveState() {
+            pushHistory(snapshot());
+        }
+
+        function undo() {
+            if (historyStack.length === 0) {
+                showToast('これ以上もどれません');
+                return;
+            }
+            redoStack.push(snapshot());
+            restore(historyStack.pop());
+            renderShapes();
+            updateHistoryButtons();
+            showToast('↩️ 1つ前にもどしました');
+        }
+
+        function redo() {
+            if (redoStack.length === 0) {
+                showToast('これ以上すすめません');
+                return;
+            }
+            historyStack.push(snapshot());
+            restore(redoStack.pop());
+            renderShapes();
+            updateHistoryButtons();
+            showToast('↪️ 1つ先にすすめました');
+        }
+
+        // 2つの図形リストが同じ形・同じ位置かどうか
+        function sameShapes(a, b) {
+            if (a.length !== b.length) return false;
+            for (let i = 0; i < a.length; i++) {
+                if (a[i].points.length !== b[i].points.length) return false;
+                if (a[i].color.fill !== b[i].color.fill) return false;
+                for (let j = 0; j < a[i].points.length; j++) {
+                    if (Math.abs(a[i].points[j].x - b[i].points[j].x) > 0.01) return false;
+                    if (Math.abs(a[i].points[j].y - b[i].points[j].y) > 0.01) return false;
+                }
+            }
+            return true;
+        }
+
+        // 図形を置いた直後の状態に戻す（切る・動かす・回す・色ぬりを取り消す）
+        function resetToPlaced() {
+            if (placedShapes.length === 0) {
+                showToast('先に図形を追加してね');
+                return;
+            }
+            if (sameShapes(shapes, placedShapes)) {
+                showToast('もう置いたときの状態です');
+                return;
+            }
+            saveState();
+            shapes = cloneShapes(placedShapes);
+            renderShapes();
+            setTool('move');
+            showToast('♻️ 置いたときの状態に戻しました');
+        }
+
+        // 図形を全部消して最初から。※もどるで元に戻せます
+        function clearAll() {
+            if (shapes.length === 0 && placedShapes.length === 0) {
+                showToast('図形はありません');
+                return;
+            }
+            saveState();
+            shapes = [];
+            placedShapes = [];
+            renderShapes();
+            setTool('move');
+            showToast('🗑️ 全て消しました');
+        }
+
+        function updateHistoryButtons() {
+            const undoBtn = document.getElementById('btn-undo');
+            const redoBtn = document.getElementById('btn-redo');
+            undoBtn.classList.toggle('is-disabled', historyStack.length === 0);
+            redoBtn.classList.toggle('is-disabled', redoStack.length === 0);
+        }
+
+        // ===== マス目スナップ =====
+
+        // Snaps a value to the nearest grid intersection
+        function snap(val) {
+            return Math.round(val / GRID_SIZE) * GRID_SIZE;
+        }
+
+        // いちばんマスの線に近い頂点の座標を基準として返す
+        function findAnchor(points, axis) {
+            let best = points[0][axis];
+            let bestErr = Math.abs(snap(best) - best);
+            for (const p of points) {
+                const err = Math.abs(snap(p[axis]) - p[axis]);
+                if (err < bestErr - 0.0001) {
+                    bestErr = err;
+                    best = p[axis];
+                }
+            }
+            return best;
+        }
+
+        // ドラッグ中の移動量を決める（上から順に優先）
+        // ①ほかの図形の頂点にピッタリ重ねる → 隙間ができない
+        // ②ほかの図形の辺の上にのせる       → 斜めの辺でもピッタリつく
+        // ③どちらも近くになければマスの交点に合わせる
+        function computeSnap(rawDx, rawDy) {
+            const orig = dragTarget.originalPoints;
+            let best = null;
+            let bestDist = SNAP_DIST;
+
+            for (const shape of shapes) {
+                if (shape === dragTarget) continue;
+                for (const q of shape.points) {
+                    for (const p of orig) {
+                        const d = Math.hypot(q.x - (p.x + rawDx), q.y - (p.y + rawDy));
+                        if (d < bestDist) {
+                            bestDist = d;
+                            best = { dx: q.x - p.x, dy: q.y - p.y, marker: {x: q.x, y: q.y} };
+                        }
+                    }
+                }
+            }
+            if (best) return best;
+
+            // ②頂点をほかの図形の辺の上にのせる（少し近づけないとくっつかない）
+            let bestEdge = null;
+            let bestEdgeDist = SNAP_DIST * 0.6;
+            for (const shape of shapes) {
+                if (shape === dragTarget) continue;
+                const n = shape.points.length;
+                for (let i = 0; i < n; i++) {
+                    const a = shape.points[i];
+                    const b = shape.points[(i + 1) % n];
+                    for (const p of orig) {
+                        const m = {x: p.x + rawDx, y: p.y + rawDy};
+                        const proj = closestPointOnSegment(m, a, b);
+                        const d = Math.hypot(proj.x - m.x, proj.y - m.y);
+                        if (d < bestEdgeDist) {
+                            bestEdgeDist = d;
+                            bestEdge = { dx: proj.x - p.x, dy: proj.y - p.y, marker: {x: proj.x, y: proj.y} };
+                        }
+                    }
+                }
+            }
+            if (bestEdge) return bestEdge;
+
+            // ③マスの交点に合わせる（基準はいちばん線に近い頂点）
+            return {
+                dx: snap(anchorX + rawDx) - anchorX,
+                dy: snap(anchorY + rawDy) - anchorY,
+                marker: null
+            };
+        }
+
+        // 線分ABの上で、点Pにいちばん近い場所を返す
+        function closestPointOnSegment(p, a, b) {
+            const vx = b.x - a.x;
+            const vy = b.y - a.y;
+            const len2 = vx * vx + vy * vy;
+            if (len2 < 0.0001) return {x: a.x, y: a.y};
+            let t = ((p.x - a.x) * vx + (p.y - a.y) * vy) / len2;
+            t = Math.max(0, Math.min(1, t));
+            return {x: a.x + vx * t, y: a.y + vy * t};
+        }
+
+        // くっつく先の頂点を光らせる
+        function showSnapMarker(pos) {
+            if (!pos) {
+                snapMarker.style.display = 'none';
+                return;
+            }
+            snapMarker.setAttribute('cx', pos.x);
+            snapMarker.setAttribute('cy', pos.y);
+            snapMarker.style.display = 'block';
+        }
+
+        function getMousePos(evt) {
+            let pt = svg.createSVGPoint();
+            if (evt.touches && evt.touches.length > 0) {
+                // タッチしている最中の座標
+                pt.x = evt.touches[0].clientX;
+                pt.y = evt.touches[0].clientY;
+            } else if (evt.changedTouches && evt.changedTouches.length > 0) {
+                // 指を離した瞬間の座標
+                pt.x = evt.changedTouches[0].clientX;
+                pt.y = evt.changedTouches[0].clientY;
+            } else {
+                // マウス操作時の座標
+                pt.x = evt.clientX || 0;
+                pt.y = evt.clientY || 0;
+            }
+            return pt.matrixTransform(svg.getScreenCTM().inverse());
+        }
+
+        // ===== 図形のかたち（数値はすべて「マス目の数」）=====
+        // 左上を(0,0)としたマス目座標をつくる。すべて整数なので頂点は必ずマスの交点に乗る。
+        const SHAPE_SPECS = {
+            triangle: {
+                name: '三角形',
+                color: {fill: '#fca5a5', stroke: '#ef4444'},
+                params: [
+                    {key: 'base',   label: '底辺',           min: 1, max: 16, def: 6},
+                    {key: 'height', label: '高さ',           min: 1, max: 12, def: 4},
+                    {key: 'apex',   label: '頂点（左から）', min: 0, max: 16, def: 4}
+                ],
+                build: p => [[0, p.height], [p.base, p.height], [p.apex, 0]]
+            },
+            righttriangle: {
+                name: '直角三角形',
+                color: {fill: '#fdba74', stroke: '#f97316'},
+                params: [
+                    {key: 'base',   label: '底辺', min: 1, max: 16, def: 6},
+                    {key: 'height', label: '高さ', min: 1, max: 12, def: 4},
+                    {key: 'corner', label: '直角の位置', def: 'br',
+                     options: [['bl','左下'], ['br','右下'], ['tl','左上'], ['tr','右上']]}
+                ],
+                build: p => {
+                    const b = p.base, h = p.height;
+                    if (p.corner === 'bl') return [[0,0], [0,h], [b,h]];
+                    if (p.corner === 'tl') return [[0,0], [b,0], [0,h]];
+                    if (p.corner === 'tr') return [[0,0], [b,0], [b,h]];
+                    return [[0,h], [b,h], [b,0]]; // br
+                }
+            },
+            quadrilateral: {
+                name: '四角形',
+                color: {fill: '#93c5fd', stroke: '#3b82f6'},
+                params: [
+                    {key: 'width',  label: 'よこ', min: 1, max: 16, def: 6},
+                    {key: 'height', label: 'たて', min: 1, max: 12, def: 4}
+                ],
+                build: p => [[0,0], [p.width,0], [p.width,p.height], [0,p.height]]
+            },
+            parallelogram: {
+                name: '平行四辺形',
+                color: {fill: '#fde047', stroke: '#eab308'},
+                params: [
+                    {key: 'base',   label: '底辺',       min: 1, max: 16, def: 6},
+                    {key: 'height', label: '高さ',       min: 1, max: 12, def: 4},
+                    {key: 'shift',  label: '上辺のずれ', min: 0, max: 10, def: 2},
+                    {key: 'dir',    label: '傾き', def: 'lt',
+                     options: [['lt','左上→右下'], ['rt','右上→左下']]}
+                ],
+                build: p => {
+                    const b = p.base, h = p.height, s = p.shift;
+                    if (p.dir === 'rt') return [[s,0], [s+b,0], [b,h], [0,h]];
+                    return [[0,0], [b,0], [b+s,h], [s,h]]; // lt
+                }
+            },
+            trapezoid: {
+                name: '台形',
+                color: {fill: '#d8b4fe', stroke: '#a855f7'},
+                params: [
+                    {key: 'upper',  label: '上底',           min: 1, max: 16, def: 3},
+                    {key: 'lower',  label: '下底',           min: 1, max: 16, def: 9},
+                    {key: 'height', label: '高さ',           min: 1, max: 12, def: 4},
+                    {key: 'offset', label: '上底（左から）', min: 0, max: 14, def: 4}
+                ],
+                build: p => [[p.offset,0], [p.offset+p.upper,0], [p.lower,p.height], [0,p.height]]
+            },
+            rhombus: {
+                name: 'ひし形',
+                color: {fill: '#86efac', stroke: '#22c55e'},
+                params: [
+                    // 頂点をマスの交点に乗せるため2マスずつ変わります
+                    {key: 'dh', label: '対角線（よこ）', min: 2, max: 16, def: 8, step: 2},
+                    {key: 'dv', label: '対角線（たて）', min: 2, max: 12, def: 4, step: 2}
+                ],
+                build: p => [[p.dh/2,0], [p.dh,p.dv/2], [p.dh/2,p.dv], [0,p.dv/2]]
+            }
+        };
+
+        const STORAGE_KEY = 'tkk-zukei-shape-params';
+        let shapeParams = {};
+        let settingsType = 'triangle';
+
+        function defaultParams(type) {
+            const out = {};
+            SHAPE_SPECS[type].params.forEach(p => { out[p.key] = p.def; });
+            return out;
+        }
+
+        function loadShapeParams() {
+            Object.keys(SHAPE_SPECS).forEach(t => { shapeParams[t] = defaultParams(t); });
+            try {
+                const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null');
+                if (saved) {
+                    Object.keys(SHAPE_SPECS).forEach(t => {
+                        if (!saved[t]) return;
+                        SHAPE_SPECS[t].params.forEach(p => {
+                            const v = saved[t][p.key];
+                            if (p.options) {
+                                if (p.options.some(o => o[0] === v)) shapeParams[t][p.key] = v;
+                            } else if (typeof v === 'number' && v >= p.min && v <= p.max) {
+                                shapeParams[t][p.key] = v;
+                            }
+                        });
+                    });
+                }
+            } catch (err) { /* 保存が使えない環境ではその場かぎりの設定になります */ }
+        }
+
+        function saveShapeParams() {
+            try { localStorage.setItem(STORAGE_KEY, JSON.stringify(shapeParams)); } catch (err) { /* 無視 */ }
+        }
+
+        // 設定値からマス目座標をつくる（左上が(0,0)になるようにそろえる）
+        function buildUnits(type) {
+            let units = SHAPE_SPECS[type].build(shapeParams[type]);
+            const minX = Math.min(...units.map(u => u[0]));
+            const minY = Math.min(...units.map(u => u[1]));
+            return units.map(u => [u[0] - minX, u[1] - minY]);
+        }
+
+        // マス目いくつ分の面積か
+        function unitArea(units) {
+            let a = 0;
+            for (let i = 0; i < units.length; i++) {
+                const j = (i + 1) % units.length;
+                a += units[i][0] * units[j][1] - units[j][0] * units[i][1];
+            }
+            return Math.round(Math.abs(a) / 2 * 100) / 100;
+        }
+
+        // ===== 図形メニューと設定パネル =====
+
+        // 設定にあわせたミニ図形のSVGをつくる
+        function iconSvg(type, size) {
+            const units = buildUnits(type);
+            const w = Math.max(...units.map(u => u[0])) || 1;
+            const h = Math.max(...units.map(u => u[1])) || 1;
+            const c = SHAPE_SPECS[type].color;
+            const pts = units.map(u => u[0] + ',' + u[1]).join(' ');
+            const m = 0.25;
+            return '<svg width="' + size + '" height="' + size + '" viewBox="' +
+                (-m) + ' ' + (-m) + ' ' + (w + m*2) + ' ' + (h + m*2) +
+                '" preserveAspectRatio="xMidYMid meet"><polygon points="' + pts +
+                '" fill="' + c.fill + '" stroke="' + c.stroke +
+                '" stroke-width="0.18" stroke-linejoin="round"/></svg>';
+        }
+
+        function renderMenu() {
+            const menu = document.getElementById('shape-menu');
+            menu.innerHTML = '';
+            Object.keys(SHAPE_SPECS).forEach(type => {
+                const btn = document.createElement('button');
+                btn.className = 'flex-shrink-0 bg-green-50 hover:bg-green-100 border-2 border-green-400 rounded-xl p-3 flex flex-col items-center gap-2 transition-transform hover:scale-105 active:scale-95';
+                btn.onclick = () => addShape(type);
+                btn.innerHTML = iconSvg(type, 40) +
+                    '<span class="text-sm font-bold text-green-800">' + SHAPE_SPECS[type].name + '</span>';
+                menu.appendChild(btn);
+            });
+        }
+
+        function openSettings() {
+            document.getElementById('settings-overlay').style.display = 'flex';
+            renderSettings();
+        }
+
+        function closeSettings() {
+            document.getElementById('settings-overlay').style.display = 'none';
+        }
+
+        function selectSettingsType(type) {
+            settingsType = type;
+            renderSettings();
+        }
+
+        function renderSettings() {
+            const spec = SHAPE_SPECS[settingsType];
+
+            // 図形のタブ
+            const tabs = document.getElementById('settings-tabs');
+            tabs.innerHTML = '';
+            Object.keys(SHAPE_SPECS).forEach(type => {
+                const b = document.createElement('button');
+                b.className = 'tab-btn px-3 py-1 rounded-full text-xs font-bold border border-green-300 bg-green-50 text-green-800' +
+                    (type === settingsType ? ' active' : '');
+                b.textContent = SHAPE_SPECS[type].name;
+                b.onclick = () => selectSettingsType(type);
+                tabs.appendChild(b);
+            });
+
+            // プレビューと面積
+            const units = buildUnits(settingsType);
+            const w = Math.max(...units.map(u => u[0]));
+            const h = Math.max(...units.map(u => u[1]));
+            let grid = '';
+            for (let x = 0; x <= w; x++) grid += '<line x1="' + x + '" y1="0" x2="' + x + '" y2="' + h + '" stroke="#cbd5e1" stroke-width="0.05"/>';
+            for (let y = 0; y <= h; y++) grid += '<line x1="0" y1="' + y + '" x2="' + w + '" y2="' + y + '" stroke="#cbd5e1" stroke-width="0.05"/>';
+            const c = spec.color;
+            const pts = units.map(u => u[0] + ',' + u[1]).join(' ');
+            const m = 0.4;
+            document.getElementById('settings-preview').innerHTML =
+                '<svg width="100%" height="150" viewBox="' + (-m) + ' ' + (-m) + ' ' + (w + m*2) + ' ' + (h + m*2) +
+                '" preserveAspectRatio="xMidYMid meet">' + grid +
+                '<polygon points="' + pts + '" fill="' + c.fill + '" fill-opacity="0.7" stroke="' + c.stroke +
+                '" stroke-width="0.12" stroke-linejoin="round"/></svg>' +
+                '<p class="text-sm font-bold text-gray-600">面積 ' + unitArea(units) + ' マス</p>';
+
+            // 数値の調節
+            const fields = document.getElementById('settings-fields');
+            fields.innerHTML = '';
+            spec.params.forEach(p => {
+                const row = document.createElement('div');
+                row.className = 'flex items-center justify-between gap-2';
+                const label = document.createElement('span');
+                label.className = 'text-sm font-bold text-gray-700';
+                label.textContent = p.label;
+                row.appendChild(label);
+
+                const ctrl = document.createElement('div');
+                ctrl.className = 'flex items-center gap-1';
+
+                if (p.options) {
+                    p.options.forEach(o => {
+                        const b = document.createElement('button');
+                        b.className = 'opt-btn px-2 py-1 rounded-lg text-xs font-bold border border-gray-300 bg-gray-50 text-gray-700' +
+                            (shapeParams[settingsType][p.key] === o[0] ? ' active' : '');
+                        b.textContent = o[1];
+                        b.onclick = () => setParam(p.key, o[0]);
+                        ctrl.appendChild(b);
+                    });
+                } else {
+                    const step = p.step || 1;
+                    const minus = document.createElement('button');
+                    minus.className = 'w-9 h-9 rounded-full bg-gray-100 hover:bg-gray-200 border border-gray-300 font-bold text-lg leading-none';
+                    minus.textContent = '－';
+                    minus.onclick = () => bumpParam(p.key, -step);
+                    const val = document.createElement('span');
+                    val.className = 'w-8 text-center font-bold text-lg text-gray-800';
+                    val.textContent = shapeParams[settingsType][p.key];
+                    const plus = document.createElement('button');
+                    plus.className = 'w-9 h-9 rounded-full bg-gray-100 hover:bg-gray-200 border border-gray-300 font-bold text-lg leading-none';
+                    plus.textContent = '＋';
+                    plus.onclick = () => bumpParam(p.key, step);
+                    ctrl.appendChild(minus);
+                    ctrl.appendChild(val);
+                    ctrl.appendChild(plus);
+                }
+                row.appendChild(ctrl);
+                fields.appendChild(row);
+            });
+        }
+
+        function bumpParam(key, delta) {
+            const p = SHAPE_SPECS[settingsType].params.find(q => q.key === key);
+            let v = shapeParams[settingsType][key] + delta;
+            v = Math.max(p.min, Math.min(p.max, v));
+            shapeParams[settingsType][key] = v;
+            afterParamChange();
+        }
+
+        function setParam(key, value) {
+            shapeParams[settingsType][key] = value;
+            afterParamChange();
+        }
+
+        function afterParamChange() {
+            saveShapeParams();
+            renderSettings();
+            renderMenu();
+        }
+
+        function resetShapeParams() {
+            shapeParams[settingsType] = defaultParams(settingsType);
+            afterParamChange();
+            showToast('⚙️ ' + SHAPE_SPECS[settingsType].name + 'を初期値にもどしました');
+        }
+
+        function addFromSettings() {
+            addShape(settingsType);
+            closeSettings();
+        }
+
+        // Add predefined shapes centered in view
+        function addShape(type) {
+            const spec = SHAPE_SPECS[type];
+            if (!spec) return;
+            const def = buildUnits(type);
+
+            // マス目の数から実際の大きさを求める
+            const w = Math.max(...def.map(u => u[0]));
+            const h = Math.max(...def.map(u => u[1]));
+
+            // 画面の中央あたりに置く。左上の基準点をマスの交点にそろえる
+            const rect = svg.getBoundingClientRect();
+            const ox = snap(rect.width / 2 - (w * GRID_SIZE) / 2);
+            const oy = snap(rect.height / 2 - (h * GRID_SIZE) / 2);
+
+            const points = def.map(u => ({
+                x: ox + u[0] * GRID_SIZE,
+                y: oy + u[1] * GRID_SIZE
+            }));
+
+            let colorSet = colors[placedShapes.length % colors.length];
+            saveState(); // 図形追加前に状態を保存
+            let newShape = {
+                id: 'shape_' + shapeIdCounter++,
+                points: points,
+                color: colorSet
+            };
+            shapes.push(newShape);
+            // 「リセット」で戻すために、置いたときの姿を記録しておく
+            placedShapes.push({
+                id: newShape.id,
+                points: points.map(p => ({x: p.x, y: p.y})),
+                color: {fill: colorSet.fill, stroke: colorSet.stroke}
+            });
+
+            renderShapes();
+            setTool('move');
+        }
+
+        function renderShapes() {
+            shapesLayer.innerHTML = ''; // Clear layer
+            
+            shapes.forEach((shape, index) => {
+                let polygon = document.createElementNS("http://www.w3.org/2000/svg", "polygon");
+                let pointsStr = shape.points.map(p => `${p.x},${p.y}`).join(" ");
+                polygon.setAttribute("points", pointsStr);
+                polygon.setAttribute("fill", shape.color.fill);
+                polygon.setAttribute("fill-opacity", "0.7"); // 塗りつぶしを70%の不透明度にして重なりを見やすく
+                polygon.setAttribute("stroke", shape.color.stroke);
+                polygon.setAttribute("stroke-linejoin", "round");
+                polygon.setAttribute("stroke-width", "2");
+                polygon.setAttribute("class", "shape-polygon");
+                polygon.setAttribute("data-id", shape.id);
+                polygon.setAttribute("data-index", index);
+
+                // Add shadow for better depth
+                polygon.setAttribute("filter", "drop-shadow(2px 2px 2px rgba(0,0,0,0.2))");
+
+                shapesLayer.appendChild(polygon);
+            });
+        }
+
+        svg.addEventListener('mousedown', startAction);
+        svg.addEventListener('mousemove', moveAction);
+        svg.addEventListener('mouseup', endAction);
+        svg.addEventListener('mouseleave', endAction);
+
+        svg.addEventListener('touchstart', startAction, {passive: false});
+        svg.addEventListener('touchmove', moveAction, {passive: false});
+        svg.addEventListener('touchend', endAction);
+        svg.addEventListener('touchcancel', endAction);
+
+        function startAction(e) {
+            if (e.type === 'touchstart') e.preventDefault();
+            let pt = getMousePos(e);
+            
+            // Check if clicking on a shape
+            let target = e.target;
+            if (target.tagName === 'polygon') {
+                let shapeIndex = parseInt(target.getAttribute('data-index'), 10);
+                let shape = shapes[shapeIndex];
+
+                if (currentTool === 'move') {
+                    preDragState = snapshot(); // 動いたときだけ履歴に積む
+                    isDragging = true;
+                    dragTarget = shape;
+                    
+                    // Bring to front
+                    shapes.splice(shapeIndex, 1);
+                    shapes.push(dragTarget);
+                    renderShapes();
+
+                    startPt = pt;
+                    // 図形の元の頂点位置を記憶しておく
+                    dragTarget.originalPoints = dragTarget.points.map(p => ({ x: p.x, y: p.y }));
+                    // マスの線に合わせる基準点（いちばん線に近い頂点）を決める
+                    anchorX = findAnchor(dragTarget.originalPoints, 'x');
+                    anchorY = findAnchor(dragTarget.originalPoints, 'y');
+                } 
+                else if (currentTool === 'rotate') {
+                    saveState(); // 回転前に状態を保存
+                    // Rotate 45 degrees around centroid
+                    rotateShape(shape);
+                    renderShapes();
+                }
+                else if (currentTool === 'color') {
+                    saveState(); // 色変更前に状態を保存
+                    // Change Color
+                    let colorIdx = colors.findIndex(c => c.fill === shape.color.fill);
+                    shape.color = colors[(colorIdx + 1) % colors.length];
+                    renderShapes();
+                }
+                else if (currentTool === 'erase') {
+                    saveState(); // 消す前に状態を保存
+                    shapes.splice(shapeIndex, 1);
+                    // 切っていない図形をそのまま消したときは、リセットでも戻さない
+                    let placedIdx = placedShapes.findIndex(s => s.id === shape.id);
+                    if (placedIdx !== -1) placedShapes.splice(placedIdx, 1);
+                    renderShapes();
+                    showToast('🧽 図形を1つ消しました');
+                }
+            }
+
+            // Start cutting anywhere on canvas
+            if (currentTool === 'cut' && !isDragging) {
+                isCutting = true;
+                // 切り始めの点もマス目の交点にスナップさせる
+                cutStartPt = { x: snap(pt.x), y: snap(pt.y) };
+                cutLine.setAttribute("x1", cutStartPt.x);
+                cutLine.setAttribute("y1", cutStartPt.y);
+                cutLine.setAttribute("x2", cutStartPt.x);
+                cutLine.setAttribute("y2", cutStartPt.y);
+                cutLine.style.display = "block";
+            }
+        }
+
+        function moveAction(e) {
+            if (e.type === 'touchmove') e.preventDefault();
+            let pt = getMousePos(e);
+
+            if (isDragging && dragTarget) {
+                let rawDx = pt.x - startPt.x;
+                let rawDy = pt.y - startPt.y;
+                let result = computeSnap(rawDx, rawDy);
+
+                dragTarget.points = dragTarget.originalPoints.map(p => ({
+                    x: p.x + result.dx,
+                    y: p.y + result.dy
+                }));
+                showSnapMarker(result.marker);
+                renderShapes();
+            }
+
+            if (isCutting) {
+                // ドラッグ中の切る線もマス目の交点にスナップさせる
+                let snappedPt = { x: snap(pt.x), y: snap(pt.y) };
+                cutLine.setAttribute("x2", snappedPt.x);
+                cutLine.setAttribute("y2", snappedPt.y);
+            }
+        }
+
+        function endAction(e) {
+            if (isDragging && dragTarget) {
+                // すでにマス目に合わせた位置で確定させる
+                let moved = dragTarget.points.some((p, i) =>
+                    p.x !== dragTarget.originalPoints[i].x || p.y !== dragTarget.originalPoints[i].y
+                );
+
+                delete dragTarget.originalPoints; // 不要になった元の座標を削除
+                isDragging = false;
+                dragTarget = null;
+                showSnapMarker(null);
+
+                if (moved && preDragState) pushHistory(preDragState);
+                preDragState = null;
+                renderShapes();
+            }
+
+            if (isCutting) {
+                isCutting = false;
+                cutLine.style.display = "none";
+                let pt = getMousePos(e);
+                let snappedPt = { x: snap(pt.x), y: snap(pt.y) };
+                
+                // Only cut if the line is long enough (prevents accidental clicks)
+                let dist = Math.hypot(snappedPt.x - cutStartPt.x, snappedPt.y - cutStartPt.y);
+                if (dist > 10) {
+                    processCut(cutStartPt, snappedPt);
+                }
+            }
+        }
+
+        function rotateShape(shape) {
+            // Find bounding box center as pseudo-centroid
+            let minX = Math.min(...shape.points.map(p=>p.x));
+            let maxX = Math.max(...shape.points.map(p=>p.x));
+            let minY = Math.min(...shape.points.map(p=>p.y));
+            let maxY = Math.max(...shape.points.map(p=>p.y));
+            
+            // Snap centroid to grid to keep shape grid-aligned after rotation
+            let cx = snap((minX + maxX) / 2);
+            let cy = snap((minY + maxY) / 2);
+
+            // Rotate 45 degrees clockwise around (cx, cy)
+            let angle = Math.PI / 4; // 45 degrees in radians
+            let cos = Math.cos(angle);
+            let sin = Math.sin(angle);
+
+            shape.points = shape.points.map(p => {
+                let dx = p.x - cx;
+                let dy = p.y - cy;
+                return {
+                    x: cx + dx * cos - dy * sin,
+                    y: cy + dx * sin + dy * cos
+                };
+            });
+        }
+
+        // Polygon Cutting Algorithm
+        function processCut(p1, p2) {
+            let newShapes = [];
+            let cutOccurred = false;
+            let beforeState = snapshot();
+
+            for (let i = 0; i < shapes.length; i++) {
+                let shape = shapes[i];
+                let splitResult = splitPolygon(shape.points, p1, p2);
+
+                if (splitResult) {
+                    cutOccurred = true;
+                    // Create two new shapes from the split
+                    newShapes.push({
+                        id: 'shape_' + shapeIdCounter++,
+                        points: splitResult[0],
+                        color: shape.color
+                    });
+                    newShapes.push({
+                        id: 'shape_' + shapeIdCounter++,
+                        points: splitResult[1],
+                        color: shape.color // Keep same color to show they belong together
+                    });
+                } else {
+                    // Keep original shape if not cut
+                    newShapes.push(shape);
+                }
+            }
+
+            if (cutOccurred) {
+                pushHistory(beforeState); // 切断前の状態を履歴へ
+                shapes = newShapes;
+                renderShapes();
+                showToast('✂️ ジョキッ！図形を切りました');
+            }
+        }
+
+        // Geometric split logic for Convex Polygons
+        function splitPolygon(points, p1, p2) {
+            // To avoid division by zero or exactly hitting vertices (which complicates basic logic), 
+            // force vertices to be cleanly on one side by slightly tweaking the check
+            const side = (p, a, b) => {
+                let val = (b.x - a.x) * (p.y - a.y) - (b.y - a.y) * (p.x - a.x);
+                return val >= 0 ? 1 : -1; 
+            };
+
+            let sides = points.map(p => side(p, p1, p2));
+            
+            // If all points are on the same side, no cut
+            let allSame = true;
+            for (let i = 1; i < sides.length; i++) {
+                if (sides[i] !== sides[0]) allSame = false;
+            }
+            if (allSame) return null;
+
+            let poly1 = [];
+            let poly2 = [];
+            let currentPoly = poly1;
+
+            for (let i = 0; i < points.length; i++) {
+                let nextI = (i + 1) % points.length;
+                let pCurrent = points[i];
+                let pNext = points[nextI];
+                let sCurrent = sides[i];
+                let sNext = sides[nextI];
+
+                currentPoly.push({x: pCurrent.x, y: pCurrent.y});
+
+                // Line crossed edge
+                if (sCurrent !== sNext) {
+                    let I = getLineIntersection(p1, p2, pCurrent, pNext);
+                    if (I) {
+                        poly1.push({x: I.x, y: I.y});
+                        poly2.push({x: I.x, y: I.y});
+                        // Switch the target polygon to add vertices to
+                        currentPoly = (currentPoly === poly1) ? poly2 : poly1;
+                    }
+                }
+            }
+
+            // 頂点をちょうど通る切り方で重複点ができるので取り除く
+            poly1 = cleanPolygon(poly1);
+            poly2 = cleanPolygon(poly2);
+
+            // Only return valid polygons (3 or more vertices)
+            if (poly1.length < 3 || poly2.length < 3) return null;
+            return [poly1, poly2];
+        }
+
+        // 同じ位置に重なった頂点を取り除く
+        function cleanPolygon(poly) {
+            let out = [];
+            for (const p of poly) {
+                const last = out[out.length - 1];
+                if (last && Math.hypot(last.x - p.x, last.y - p.y) < 0.5) continue;
+                out.push(p);
+            }
+            const first = out[0];
+            const last = out[out.length - 1];
+            if (out.length > 1 && Math.hypot(first.x - last.x, first.y - last.y) < 0.5) out.pop();
+            return out;
+        }
+
+        // Calculate intersection of infinite line A-B and segment C-D
+        function getLineIntersection(A, B, C, D) {
+            let a1 = B.y - A.y;
+            let b1 = A.x - B.x;
+            let c1 = a1 * A.x + b1 * A.y;
+
+            let a2 = D.y - C.y;
+            let b2 = C.x - D.x;
+            let c2 = a2 * C.x + b2 * C.y;
+
+            let determinant = a1 * b2 - a2 * b1;
+            if (Math.abs(determinant) < 0.001) return null; // Lines are parallel
+
+            let x = (b2 * c1 - b1 * c2) / determinant;
+            let y = (a1 * c2 - a2 * c1) / determinant;
+            
+            return {x, y};
+        }
+
+        // 背景をタップしたら設定パネルを閉じる
+        document.getElementById('settings-overlay').addEventListener('click', (e) => {
+            if (e.target.id === 'settings-overlay') closeSettings();
+        });
+
+        // Setup Initial state
+        loadShapeParams();
+        renderMenu();
+        updateHistoryButtons();
+        setTimeout(() => showToast('左のメニューから図形を追加してね！'), 500);
+
+    </script>
+</body>
+</html>
