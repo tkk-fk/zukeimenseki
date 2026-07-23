@@ -110,6 +110,9 @@
                 <button onclick="setTool('rotate')" id="btn-rotate" class="tool-btn flex-shrink-0 px-4 py-2 rounded-full font-bold bg-gray-100 text-gray-700 hover:bg-gray-200 border border-gray-300">
                     🔄 回す
                 </button>
+                <button onclick="setTool('flip')" id="btn-flip" class="tool-btn flex-shrink-0 px-4 py-2 rounded-full font-bold bg-gray-100 text-gray-700 hover:bg-gray-200 border border-gray-300">
+                    🪞 うら返す
+                </button>
                 <button onclick="setTool('color')" id="btn-color" class="tool-btn flex-shrink-0 px-4 py-2 rounded-full font-bold bg-gray-100 text-gray-700 hover:bg-gray-200 border border-gray-300">
                     🎨 色ぬり
                 </button>
@@ -257,6 +260,7 @@
                 'move': '👆 図形をドラッグして移動させよう',
                 'cut': '✂️ スワイプして図形をまっすぐ切ろう',
                 'rotate': '🔄 図形をタップして45度回そう',
+                'flip': '🪞 図形をタップして左右にうら返そう',
                 'color': '🎨 図形をタップして色を変えよう',
                 'erase': '🧽 消したい図形をタップしよう'
             };
@@ -1095,6 +1099,11 @@
                     rotateShape(shape);
                     renderShapes();
                 }
+                else if (currentTool === 'flip') {
+                    saveState(); // うら返す前に状態を保存
+                    flipShape(shape);
+                    renderShapes();
+                }
                 else if (currentTool === 'color') {
                     saveState(); // 色変更前に状態を保存
                     // Change Color
@@ -1179,6 +1188,18 @@
                     processCut(cutStartPt, snappedPt);
                 }
             }
+        }
+
+        // 左右にうら返す（その場でひっくり返るので位置は変わらない）
+        function flipShape(shape) {
+            const minX = Math.min(...shape.points.map(p => p.x));
+            const maxX = Math.max(...shape.points.map(p => p.x));
+            const sum = minX + maxX; // 左右の折り返し線（中心の2倍）
+
+            // x座標を折り返す。頂点がマスの交点にあれば、うら返しても交点のまま
+            shape.points = shape.points.map(p => ({x: sum - p.x, y: p.y}));
+            // 頂点をたどる向きが逆になるので、順番も入れかえる
+            shape.points.reverse();
         }
 
         function rotateShape(shape) {
